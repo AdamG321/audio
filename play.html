@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TTS Play</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #020308;
+      --accent: #39c5ff;
+      --accent2: #7b5bff;
+      --text: #f5f7ff;
+      --muted: #9ca3c7;
+      --header-h: 56px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      background: radial-gradient(circle at top, #181a30 0, #000 55%);
+      color: var(--text);
+      overflow: hidden;
+    }
+    header {
+      height: var(--header-h);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      background: linear-gradient(90deg, #050712, #050710);
+    }
+    .tab {
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      text-decoration: none;
+      color: var(--muted);
+      border: 1px solid transparent;
+    }
+    .tab.active {
+      color: var(--accent);
+      background: rgba(57,197,255,0.08);
+      border-color: rgba(57,197,255,0.4);
+    }
+
+    main {
+      position: relative;
+      height: calc(100vh - var(--header-h));
+      width: 100vw;
+      overflow: hidden;
+    }
+
+    .half-btn {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 50%;
+      border: none;
+      padding: 0;
+      font-size: 32px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: manipulation;
+    }
+    .half-btn span {
+      pointer-events: none;
+    }
+    #prevBtn {
+      top: 0;
+      background: radial-gradient(circle at top, #0a2738 0, #050817 70%);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    #nextBtn {
+      bottom: 0;
+      background: radial-gradient(circle at bottom, #26135a 0, #050817 70%);
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .half-btn:active {
+      transform: scale(0.98);
+    }
+
+    .info {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      pointer-events: none;
+    }
+    .info-main {
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    .info-sub {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    audio {
+      position: fixed;
+      bottom: 6px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 420px;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="list.html" class="tab">list</a>
+    <a href="play.html" class="tab active">play</a>
+  </header>
+
+  <main>
+    <button id="prevBtn" class="half-btn">
+      <span>◀ ELŐZŐ</span>
+    </button>
+    <button id="nextBtn" class="half-btn">
+      <span>KÖVETKEZŐ ▶</span>
+    </button>
+
+    <div class="info">
+      <div id="nowPlaying" class="info-main">Nincs lejátszható hang.</div>
+      <div id="nowMeta" class="info-sub"></div>
+    </div>
+
+    <!-- Rejtettnek nem rejtjük el teljesen: hasznos a natív kontroll -->
+    <audio id="audio" controls></audio>
+  </main>
+
+  <script>
+    const API_BASE = "https://esp32-grok-backend-380902719306.europe-central2.run.app";
+
+    let items = [];
+    let currentIndex = 0;
+
+    const audioEl = document.getElementById("audio");
+    const nowPlayingEl = document.getElementById("nowPlaying");
+    const nowMetaEl = document.getElementById("nowMeta");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+
+    function loadFromStorage() {
+      const raw = localStorage.getItem("ttsItems");
+      if (raw) {
+        try {
+          items = JSON.parse(raw) || [];
+        } catch {
+          items = [];
+        }
+      }
+      const idxStr = localStorage.getItem("ttsIndex") || "0";
+      const idx = parseInt(idxStr, 10);
+      if (!isNaN(idx)) {
+        currentIndex = Math.min(Math.max(idx, 0), Math.max(items.length - 1, 0));
+      } else {
+        currentIndex = 0;
+      }
+    }
+
+    async function ensureItems() {
+      loadFromStorage();
+
+      if (!items || !items.length) {
+        // ha nincs semmi storage-ben, kérjünk a backendtől
+        try {
+          const res = await fetch(`${API_BASE}/answers/recent`);
+          const data = await res.json();
+          items = (data || []).filter(it => it.audioUrl);
+          localStorage.setItem("ttsItems", JSON.stringify(items));
+          currentIndex = 0;
+        } catch (err) {
+          console.error(err);
+          nowPlayingEl.textContent = "Nem sikerült lekérni a listát.";
+          return;
+        }
+      }
+
+      if (!items.length) {
+        nowPlayingEl.textContent = "Nincs lejátszható hang.";
+        nowMetaEl.textContent = "";
+        return;
+      }
+
+      playCurrent();
+    }
+
+    function playCurrent() {
+      if (!items.length) return;
+
+      const item = items[currentIndex];
+      const ts = item.timestamp ? new Date(item.timestamp) : null;
+      const timeStr = ts
+        ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "";
+
+      nowPlayingEl.textContent = `#${currentIndex + 1} / ${items.length}`;
+      nowMetaEl.textContent = `batch ${item.batchId ?? "?"} • ${timeStr}`;
+
+      audioEl.src = item.audioUrl;
+      audioEl.play().catch(() => {
+        // mobilon első interakció nélkül nem mindig indul – de a gombnyomás az már interakció
+      });
+
+      localStorage.setItem("ttsIndex", String(currentIndex));
+    }
+
+    function prev() {
+      if (!items.length) return;
+      currentIndex = (currentIndex - 1 + items.length) % items.length;
+      playCurrent();
+    }
+
+    function next() {
+      if (!items.length) return;
+      currentIndex = (currentIndex + 1) % items.length;
+      playCurrent();
+    }
+
+    prevBtn.addEventListener("click", prev);
+    nextBtn.addEventListener("click", next);
+
+    window.addEventListener("load", ensureItems);
+  </script>
+</body>
+</html>

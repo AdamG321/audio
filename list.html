@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TTS List</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #04050a;
+      --bg-card: #10121a;
+      --accent: #39c5ff;
+      --accent-soft: rgba(57, 197, 255, 0.15);
+      --text: #f5f7ff;
+      --muted: #9ca3c7;
+      --header-h: 56px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      background: radial-gradient(circle at top, #151729 0, #020308 55%);
+      color: var(--text);
+    }
+    header {
+      height: var(--header-h);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      background: linear-gradient(90deg, #050712, #050710);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .tab {
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      text-decoration: none;
+      color: var(--muted);
+      border: 1px solid transparent;
+    }
+    .tab.active {
+      color: var(--accent);
+      background: rgba(57,197,255,0.08);
+      border-color: rgba(57,197,255,0.4);
+    }
+    main {
+      padding: 12px 12px 32px;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    #refreshBtn {
+      width: 100%;
+      padding: 10px 0;
+      border-radius: 999px;
+      border: 1px solid rgba(57,197,255,0.7);
+      background: linear-gradient(90deg,#0b1826,#07101c);
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+    #refreshBtn:active {
+      transform: scale(0.98);
+    }
+
+    .status {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border-radius: 18px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      border: 1px solid rgba(255,255,255,0.05);
+      box-shadow: 0 14px 35px rgba(0,0,0,0.6);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .card-time {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .card-body {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .card-body span {
+      background: var(--accent-soft);
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 11px;
+      color: var(--accent);
+      margin-right: 4px;
+    }
+    .play-small {
+      width: 100%;
+      padding: 8px 0;
+      border-radius: 999px;
+      border: none;
+      background: linear-gradient(90deg,#39c5ff,#5a7bff);
+      color: #020308;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .play-small:active {
+      transform: scale(0.98);
+    }
+
+    .empty {
+      padding: 16px 10px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="list.html" class="tab active">list</a>
+    <a href="play.html" class="tab">play</a>
+  </header>
+
+  <main>
+    <button id="refreshBtn">Frissítés (utolsó 1 óra)</button>
+    <div id="status" class="status">Betöltés...</div>
+    <div id="list"></div>
+  </main>
+
+  <script>
+    const API_BASE = "https://esp32-grok-backend-380902719306.europe-central2.run.app";
+
+    async function loadList() {
+      const status = document.getElementById("status");
+      const listEl = document.getElementById("list");
+      status.textContent = "Betöltés...";
+      listEl.innerHTML = "";
+
+      try {
+        const res = await fetch(`${API_BASE}/answers/recent`);
+        const data = await res.json();
+
+        // Csak azokat tartjuk meg, amelyekhez van audioUrl
+        const items = (data || []).filter(it => it.audioUrl);
+
+        // Lokális storage – play oldal innen olvassa
+        localStorage.setItem("ttsItems", JSON.stringify(items));
+        localStorage.setItem("ttsIndex", "0");
+
+        if (!items.length) {
+          status.textContent = "Nincs hangos válasz az utolsó 1 órában.";
+          listEl.innerHTML = '<div class="empty">Készíts új batch-et az ESP-vel.</div>';
+          return;
+        }
+
+        status.textContent = `${items.length} hangos válasz az utolsó 1 órában.`;
+
+        items.forEach((item, idx) => {
+          const card = document.createElement("div");
+          card.className = "card";
+
+          const ts = item.timestamp ? new Date(item.timestamp) : null;
+          const timeStr = ts
+            ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            : "ismeretlen idő";
+
+          const preview =
+            (item.answer || "").replace(/\s+/g, " ").slice(0, 120) +
+            ((item.answer || "").length > 120 ? "…" : "");
+
+          card.innerHTML = `
+            <div class="card-header">
+              <div class="card-title">#${idx + 1} • batch ${item.batchId ?? "?"}</div>
+              <div class="card-time">${timeStr}</div>
+            </div>
+            <div class="card-body">
+              <span>TTS</span>${preview || "nincs rövid leírás"}
+            </div>
+            <button class="play-small">Lejátszás itt / PLAY nézetben</button>
+          `;
+
+          card.querySelector(".play-small").addEventListener("click", () => {
+            localStorage.setItem("ttsIndex", String(idx));
+            // átugrunk a PLAY oldalra – ott indul a lejátszás
+            window.location.href = "play.html";
+          });
+
+          listEl.appendChild(card);
+        });
+      } catch (err) {
+        console.error(err);
+        status.textContent = "Hiba történt a lista lekérésekor.";
+        listEl.innerHTML =
+          '<div class="empty">Nem sikerült csatlakozni a backendhez.</div>';
+      }
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", loadList);
+    window.addEventListener("load", loadList);
+  </script>
+</body>
+</html>
