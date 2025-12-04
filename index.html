@@ -156,13 +156,19 @@
       try {
         const res = await fetch(`${API_BASE}/answers/recent`);
         const data = await res.json();
-
-        // Csak azokat tartjuk meg, amelyekhez van audioUrl
-        const items = (data || []).filter(it => it.audioUrl);
-
+        
+        // Backend: audioPath + eszkoz + csoport
+        const items = (data || [])
+          .filter(it => it.audioPath) // csak ahol van hang
+          .map(it => ({
+            ...it,
+            audioUrl: `${API_BASE}/audio?file=${encodeURIComponent(it.audioPath)}`,
+          }));
+        
         // Lokális storage – play oldal innen olvassa
         localStorage.setItem("ttsItems", JSON.stringify(items));
         localStorage.setItem("ttsIndex", "0");
+
 
         if (!items.length) {
           status.textContent = "Nincs hangos válasz az utolsó 1 órában.";
@@ -185,16 +191,27 @@
             (item.answer || "").replace(/\s+/g, " ").slice(0, 120) +
             ((item.answer || "").length > 120 ? "…" : "");
 
+          const deviceTitle = (() => {
+            let t = item.eszkoz || "Ismeretlen eszköz";
+            if (item.csoport && item.csoport !== "NONE") {
+              t += " - " + item.csoport + " csoport";
+            }
+            return t;
+          })();
+          
           card.innerHTML = `
             <div class="card-header">
-              <div class="card-title">#${idx + 1} • batch ${item.batchId ?? "?"}</div>
+              <div class="card-title">${deviceTitle}</div>
               <div class="card-time">${timeStr}</div>
             </div>
             <div class="card-body">
-              <span>TTS</span>${preview || "nincs rövid leírás"}
+              <span>TTS</span>batch ${item.batchId ?? "?"} • ${
+                preview || "nincs rövid leírás"
+              }
             </div>
             <button class="play-small">Lejátszás itt / PLAY nézetben</button>
           `;
+
 
           card.querySelector(".play-small").addEventListener("click", () => {
             localStorage.setItem("ttsIndex", String(idx));
@@ -217,4 +234,5 @@
   </script>
 </body>
 </html>
+
 
