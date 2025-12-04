@@ -177,7 +177,12 @@
         try {
           const res = await fetch(`${API_BASE}/answers/recent`);
           const data = await res.json();
-          items = (data || []).filter(it => it.audioUrl);
+          items = (data || [])
+            .filter(it => it.audioPath)
+            .map(it => ({
+              ...it,
+              audioUrl: `${API_BASE}/audio?file=${encodeURIComponent(it.audioPath)}`,
+            }));
           localStorage.setItem("ttsItems", JSON.stringify(items));
           currentIndex = 0;
         } catch (err) {
@@ -205,14 +210,20 @@
         ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : "";
 
+      const deviceTitle = (() => {
+        let t = item.eszkoz || "Ismeretlen eszköz";
+        if (item.csoport && item.csoport !== "NONE") {
+          t += " - " + item.csoport + " csoport";
+        }
+        return t;
+      })();
+      
       nowPlayingEl.textContent = `#${currentIndex + 1} / ${items.length}`;
-      nowMetaEl.textContent = `batch ${item.batchId ?? "?"} • ${timeStr}`;
-
+      nowMetaEl.textContent = `${deviceTitle} • batch ${item.batchId ?? "?"} • ${timeStr}`;
+      
       audioEl.src = item.audioUrl;
-      audioEl.play().catch(() => {
-        // mobilon első interakció nélkül nem mindig indul – de a gombnyomás az már interakció
-      });
-
+      audioEl.play().catch(() => { /* mobil autoplay workaround */ });
+      
       localStorage.setItem("ttsIndex", String(currentIndex));
     }
 
@@ -235,4 +246,5 @@
   </script>
 </body>
 </html>
+
 
